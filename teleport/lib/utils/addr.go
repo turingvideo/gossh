@@ -1,5 +1,5 @@
 /*
-Copyright 2015-2020 Gravitational, Inc.
+Copyright 2015 Gravitational, Inc.
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
@@ -13,24 +13,13 @@ limitations under the License.
 
 package utils
 
-import "io"
+import "net"
 
-type multiCloser struct {
-	closers []io.Closer
-}
-
-func (mc *multiCloser) Close() error {
-	for _, closer := range mc.closers {
-		if err := closer.Close(); err != nil {
-			return err
-		}
+// IsLocalhost returns true if this is a local hostname or ip
+func IsLocalhost(host string) bool {
+	if host == "localhost" {
+		return true
 	}
-	return nil
-}
-
-// MultiCloser implements io.Close, it sequentially calls Close() on each object
-func MultiCloser(closers ...io.Closer) io.Closer {
-	return &multiCloser{
-		closers: closers,
-	}
+	ip := net.ParseIP(host)
+	return ip.IsLoopback() || ip.IsUnspecified()
 }
