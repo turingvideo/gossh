@@ -17,13 +17,14 @@ import (
 )
 
 type Client struct {
-	Logger   *zerolog.Logger
-	Addr     string
-	Username string
-	Password string
-	Stdin    io.Reader
-	Stdout   io.Writer
-	Stderr   io.Writer
+	Logger           *zerolog.Logger
+	Addr             string
+	Username         string
+	Password         string
+	PasswordCallback func() (secret string, err error)
+	Stdin            io.Reader
+	Stdout           io.Writer
+	Stderr           io.Writer
 
 	// LocalForwardPorts are the local ports listens on for port forwarding
 	// (parameters to -L ssh flag).
@@ -39,11 +40,17 @@ type Client struct {
 }
 
 func (c *Client) SSH(ctx context.Context, command []string) error {
+	var auth []ssh.AuthMethod
+	if c.Password != "" {
+		auth = append(auth, ssh.Password(c.Password))
+	}
+	if c.PasswordCallback != nil {
+		auth = append(auth, ssh.PasswordCallback(c.PasswordCallback))
+	}
+
 	sshConfig := &ssh.ClientConfig{
-		User: c.Username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(c.Password),
-		},
+		User:            c.Username,
+		Auth:            auth,
 		HostKeyCallback: HostKeyCallback,
 	}
 
