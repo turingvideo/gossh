@@ -36,7 +36,6 @@ func SSH(ctx context.Context, cfg *Config, command []string) error {
 		Auth: []ssh.AuthMethod{
 			ssh.Password(cfg.Password),
 		},
-		// HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		HostKeyCallback: HostKeyCallback,
 	}
 

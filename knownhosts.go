@@ -47,7 +47,8 @@ func appendKnownHostsHostKey(hostname string, remote net.Addr, key ssh.PublicKey
 func HostKeyCallback(hostname string, remote net.Addr, key ssh.PublicKey) error {
 	knownHostsHostKeyCallback, err := GetKnownHostsHostKeyCallback()
 	if err != nil {
-		return err
+		fmt.Printf("Warning: %v. Ignore host key check.\n", err)
+		knownHostsHostKeyCallback = ssh.InsecureIgnoreHostKey()
 	}
 	err = knownHostsHostKeyCallback(hostname, remote, key)
 
