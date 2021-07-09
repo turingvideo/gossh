@@ -13,6 +13,7 @@ import (
 
 	"github.com/moby/term"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/turingvideo/gossh/teleport"
 	"github.com/turingvideo/gossh/teleport/lib/defaults"
 	"github.com/turingvideo/gossh/teleport/lib/sshutils"
@@ -52,6 +53,9 @@ func NewSession(
 	stdout io.Writer,
 	stderr io.Writer,
 ) (*Session, error) {
+	if logger == nil {
+		logger = &log.Logger
+	}
 	if stdin == nil {
 		stdin = os.Stdin
 	}
