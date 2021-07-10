@@ -106,6 +106,9 @@ func (c *Client) SCP(ctx context.Context, args []string, port int, flags scp.Fla
 	var progressWriter io.Writer
 	if !quiet {
 		progressWriter = c.Stdout
+		if progressWriter == nil {
+			progressWriter = os.Stdout
+		}
 	}
 
 	// gets called to convert SSH error code to tc.ExitStatus
