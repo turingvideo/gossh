@@ -2,6 +2,7 @@ package gossh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,9 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gravitational/teleport/lib/client"
+	"github.com/gravitational/teleport/lib/sshutils/scp"
+	"github.com/gravitational/teleport/lib/utils"
+	"github.com/gravitational/teleport/lib/utils/socks"
+	"github.com/gravitational/trace"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/turingvideo/gossh/teleport/lib/utils/socks"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -26,20 +31,105 @@ type Client struct {
 	Stdout           io.Writer
 	Stderr           io.Writer
 
+	// ExitStatus carries the returned value (exit status) of the remote
+	// process execution (via SSH exec)
+	ExitStatus int
+
 	// LocalForwardPorts are the local ports listens on for port forwarding
 	// (parameters to -L ssh flag).
-	LocalForwardPorts []ForwardedPort
+	LocalForwardPorts client.ForwardedPorts
 
 	// DynamicForwardedPorts are the list of ports listens on for dynamic
 	// port forwarding (parameters to -D ssh flag).
-	DynamicForwardedPorts []DynamicForwardedPort
+	DynamicForwardedPorts client.DynamicForwardedPorts
 
 	// Interactive, when set to true, launch a remote command
 	// in interactive mode, i.e. attaching the temrinal to it
 	Interactive bool
 }
 
+type scpConfig struct {
+	cmd       scp.Command
+	addr      string
+	hostLogin string
+}
+
 func (c *Client) SSH(ctx context.Context, command []string) error {
+	client, err := c.connect()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	// If forwarding ports were specified, start port forwarding.
+	c.startPortForwarding(ctx, client)
+
+	// Issue "exec" request(s) to run on remote session.
+	if len(command) > 0 {
+		return c.runCommand(ctx, client, command)
+	}
+
+	// Issue "shell" request.
+	return c.runShell(client)
+}
+
+// SCP securely copies file(s) from one SSH server to another
+func (c *Client) SCP(ctx context.Context, args []string, port int, flags scp.Flags, quiet bool) (err error) {
+	if len(args) < 2 {
+		return trace.Errorf("need at least two arguments for scp")
+	}
+	first := args[0]
+	last := args[len(args)-1]
+
+	// local copy?
+	if !isRemoteDest(first) && !isRemoteDest(last) {
+		return trace.BadParameter("making local copies is not supported")
+	}
+
+	var progressWriter io.Writer
+	if !quiet {
+		progressWriter = c.Stdout
+	}
+
+	// gets called to convert SSH error code to tc.ExitStatus
+	onError := func(err error) error {
+		exitError, _ := trace.Unwrap(err).(*ssh.ExitError)
+		if exitError != nil {
+			c.ExitStatus = exitError.ExitStatus()
+		}
+		return err
+	}
+
+	tpl := scp.Config{
+		User:           c.Username,
+		ProgressWriter: progressWriter,
+		Flags:          flags,
+	}
+
+	var config *scpConfig
+	// upload:
+	if isRemoteDest(last) {
+		config, err = uploadConfig(ctx, tpl, port, args)
+		if err != nil {
+			return trace.Wrap(err)
+		}
+	} else {
+		config, err = downloadConfig(ctx, tpl, port, args)
+		if err != nil {
+			return trace.Wrap(err)
+		}
+	}
+
+	client, err := c.connect()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	return onError(c.executeSCP(ctx, client, config.cmd))
+}
+
+func (c *Client) connect() (*ssh.Client, error) {
 	var auth []ssh.AuthMethod
 	if c.Password != "" {
 		auth = append(auth, ssh.Password(c.Password))
@@ -56,20 +146,94 @@ func (c *Client) SSH(ctx context.Context, command []string) error {
 
 	client, err := ssh.Dial("tcp", c.Addr, sshConfig)
 	if err != nil {
-		return fmt.Errorf("failed to dial: %s", err)
+		c.ExitStatus = 1
+		return nil, fmt.Errorf("failed to dial: %s", err)
 	}
-	defer client.Close()
+	return client, nil
+}
 
-	// If forwarding ports were specified, start port forwarding.
-	c.startPortForwarding(ctx, client)
-
-	// Issue "exec" request(s) to run on remote session.
-	if len(command) > 0 {
-		return c.runCommand(ctx, client, command)
+// ExecuteSCP runs remote scp command(shellCmd) on the remote server and
+// runs local scp handler using SCP Command
+func (c *Client) executeSCP(ctx context.Context, client *ssh.Client, cmd scp.Command) error {
+	shellCmd, err := cmd.GetRemoteShellCmd()
+	if err != nil {
+		return err
 	}
 
-	// Issue "shell" request.
-	return c.runShell(client)
+	s, err := client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+
+	stdin, err := s.StdinPipe()
+	if err != nil {
+		return err
+	}
+
+	stdout, err := s.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	// Stream scp's stderr so tsh gets the verbose remote error
+	// if the command fails
+	stderr, err := s.StderrPipe()
+	if err != nil {
+		return err
+	}
+	go io.Copy(os.Stderr, stderr)
+
+	ch := utils.NewPipeNetConn(
+		stdout,
+		stdin,
+		utils.MultiCloser(),
+		&net.IPAddr{},
+		&net.IPAddr{},
+	)
+
+	execC := make(chan error, 1)
+	go func() {
+		err := cmd.Execute(ch)
+		if err != nil && !trace.IsEOF(err) {
+			c.getLogger().Warn().Err(err).Msg("Failed to execute SCP command.")
+		}
+		stdin.Close()
+		execC <- err
+	}()
+
+	runC := make(chan error, 1)
+	go func() {
+		err := s.Run(shellCmd)
+		if err != nil && errors.Is(err, &ssh.ExitMissingError{}) {
+			// TODO(dmitri): currently, if the session is aborted with (*session).Close,
+			// the remote side cannot send exit-status and this error results.
+			// To abort the session properly, Teleport needs to support `signal` request
+			err = nil
+		}
+		runC <- err
+	}()
+
+	var runErr error
+	select {
+	case <-ctx.Done():
+		if err := s.Close(); err != nil {
+			c.getLogger().Debug().Err(err).Msg("Failed to close the SSH session.")
+		}
+		err, runErr = <-execC, <-runC
+	case err = <-execC:
+		runErr = <-runC
+	case runErr = <-runC:
+		err = <-execC
+	}
+
+	if runErr != nil && (err == nil || trace.IsEOF(err)) {
+		err = runErr
+	}
+	if trace.IsEOF(err) {
+		err = nil
+	}
+	return err
 }
 
 func (c *Client) getLogger() *zerolog.Logger {
@@ -108,7 +272,20 @@ func (c *Client) runCommand(ctx context.Context, client *ssh.Client, command []s
 	}
 	defer session.Close()
 	if err := session.RunCommand(ctx, command, nil, c.Interactive); err != nil {
-		return err
+		originErr := trace.Unwrap(err)
+		exitErr, ok := originErr.(*ssh.ExitError)
+		if ok {
+			c.ExitStatus = exitErr.ExitStatus()
+		} else {
+			// if an error occurs, but no exit status is passed back, GoSSH returns
+			// a generic error like this. in this case the error message is printed
+			// to stderr by the remote process so we have to quietly return 1:
+			if strings.Contains(originErr.Error(), "exited without exit status") {
+				c.ExitStatus = 1
+			}
+		}
+
+		return trace.Wrap(err)
 	}
 
 	return nil
@@ -289,4 +466,73 @@ func (c *Client) proxyConnection(ctx context.Context, conn net.Conn, remoteAddr 
 	}
 
 	return NewAggregate(errs...)
+}
+
+func isRemoteDest(name string) bool {
+	return strings.ContainsRune(name, ':')
+}
+
+func getSCPDestination(target string, port int) (dest *scp.Destination, addr string, err error) {
+	dest, err = scp.ParseSCPDestination(target)
+	if err != nil {
+		return nil, "", trace.Wrap(err)
+	}
+	addr = net.JoinHostPort(dest.Host.Host(), strconv.Itoa(port))
+	return dest, addr, nil
+}
+
+func uploadConfig(ctx context.Context, tpl scp.Config, port int, args []string) (config *scpConfig, err error) {
+	// args are guaranteed to have len(args) > 1
+	filesToUpload := args[:len(args)-1]
+	// copy everything except the last arg (the destination)
+	destPath := args[len(args)-1]
+
+	// If more than a single file were provided, scp must be in directory mode
+	// and the target on the remote host needs to be a directory.
+	var directoryMode bool
+	if len(filesToUpload) > 1 {
+		directoryMode = true
+	}
+
+	dest, addr, err := getSCPDestination(destPath, port)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	tpl.RemoteLocation = dest.Path
+	tpl.Flags.Target = filesToUpload
+	tpl.Flags.DirectoryMode = directoryMode
+
+	cmd, err := scp.CreateUploadCommand(tpl)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return &scpConfig{
+		cmd:       cmd,
+		addr:      addr,
+		hostLogin: dest.Login,
+	}, nil
+}
+
+func downloadConfig(ctx context.Context, tpl scp.Config, port int, args []string) (config *scpConfig, err error) {
+	// args are guaranteed to have len(args) > 1
+	src, addr, err := getSCPDestination(args[0], port)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	tpl.RemoteLocation = src.Path
+	tpl.Flags.Target = args[1:]
+
+	cmd, err := scp.CreateDownloadCommand(tpl)
+	if err != nil {
+		return nil, trace.Wrap(err)
+	}
+
+	return &scpConfig{
+		cmd:       cmd,
+		addr:      addr,
+		hostLogin: src.Login,
+	}, nil
 }

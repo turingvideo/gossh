@@ -1,4 +1,17 @@
-package gossh
+/*
+Copyright 2016-2019 Gravitational, Inc.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package client
 
 import (
 	"fmt"
@@ -6,9 +19,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gravitational/teleport/lib/defaults"
+	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/trace"
-	"github.com/turingvideo/gossh/teleport/lib/defaults"
-	"github.com/turingvideo/gossh/teleport/lib/utils"
 )
 
 // ForwardedPort specifies local tunnel to remote
@@ -19,6 +32,20 @@ type ForwardedPort struct {
 	SrcPort  int
 	DestPort int
 	DestHost string
+}
+
+// ForwardedPorts contains an array of forwarded port structs
+type ForwardedPorts []ForwardedPort
+
+// ToString returns a string representation of a forwarded port spec, compatible
+// with OpenSSH's -L  flag, i.e. "src_host:src_port:dest_host:dest_port".
+func (p *ForwardedPort) ToString() string {
+	sport := strconv.Itoa(p.SrcPort)
+	dport := strconv.Itoa(p.DestPort)
+	if utils.IsLocalhost(p.SrcIP) {
+		return sport + ":" + net.JoinHostPort(p.DestHost, dport)
+	}
+	return net.JoinHostPort(p.SrcIP, sport) + ":" + net.JoinHostPort(p.DestHost, dport)
 }
 
 // DynamicForwardedPort local port for dynamic application-level port
@@ -33,16 +60,8 @@ type DynamicForwardedPort struct {
 	SrcPort int
 }
 
-// ToString returns a string representation of a forwarded port spec, compatible
-// with OpenSSH's -L  flag, i.e. "src_host:src_port:dest_host:dest_port".
-func (p *ForwardedPort) ToString() string {
-	sport := strconv.Itoa(p.SrcPort)
-	dport := strconv.Itoa(p.DestPort)
-	if utils.IsLocalhost(p.SrcIP) {
-		return sport + ":" + net.JoinHostPort(p.DestHost, dport)
-	}
-	return net.JoinHostPort(p.SrcIP, sport) + ":" + net.JoinHostPort(p.DestHost, dport)
-}
+// DynamicForwardedPorts is a slice of locally forwarded dynamic ports (SOCKS5).
+type DynamicForwardedPorts []DynamicForwardedPort
 
 // ToString returns a string representation of a dynamic port spec, compatible
 // with OpenSSH's -D flag, i.e. "src_host:src_port".
@@ -54,9 +73,17 @@ func (p *DynamicForwardedPort) ToString() string {
 	return net.JoinHostPort(p.SrcIP, sport)
 }
 
+// String returns the same string spec which can be parsed by ParsePortForwardSpec.
+func (fp ForwardedPorts) String() (retval []string) {
+	for _, p := range fp {
+		retval = append(retval, p.ToString())
+	}
+	return retval
+}
+
 // ParsePortForwardSpec parses parameter to -L flag, i.e. strings like "[ip]:80:remote.host:3000"
 // The opposite of this function (spec generation) is ForwardedPorts.String()
-func ParsePortForwardSpec(spec []string) (ports []ForwardedPort, err error) {
+func ParsePortForwardSpec(spec []string) (ports ForwardedPorts, err error) {
 	if len(spec) == 0 {
 		return ports, nil
 	}
@@ -86,11 +113,20 @@ func ParsePortForwardSpec(spec []string) (ports []ForwardedPort, err error) {
 	return ports, nil
 }
 
+// String returns the same string spec which can be parsed by
+// ParseDynamicPortForwardSpec.
+func (fp DynamicForwardedPorts) String() (retval []string) {
+	for _, p := range fp {
+		retval = append(retval, p.ToString())
+	}
+	return retval
+}
+
 // ParseDynamicPortForwardSpec parses the dynamic port forwarding spec
 // passed in the -D flag. The format of the dynamic port forwarding spec
 // is [bind_address:]port.
-func ParseDynamicPortForwardSpec(spec []string) ([]DynamicForwardedPort, error) {
-	result := make([]DynamicForwardedPort, 0, len(spec))
+func ParseDynamicPortForwardSpec(spec []string) (DynamicForwardedPorts, error) {
+	result := make(DynamicForwardedPorts, 0, len(spec))
 
 	for _, str := range spec {
 		// Check whether this is only the port number, like "1080".
