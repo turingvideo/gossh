@@ -387,6 +387,7 @@ func (s *Session) interactiveSession(callback interactiveCallback) error {
 		if err != nil {
 			s.logger.Warn().Err(err)
 		} else {
+			//nolint:errcheck
 			defer term.RestoreTerminal(0, ts)
 		}
 	}

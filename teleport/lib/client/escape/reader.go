@@ -213,5 +213,6 @@ func (r *Reader) setErr(err error) {
 }
 
 func (r *Reader) printHelp() {
+	//nolint:errcheck
 	r.out.Write([]byte(helpText))
 }

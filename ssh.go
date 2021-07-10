@@ -182,6 +182,7 @@ func (c *Client) executeSCP(ctx context.Context, client *ssh.Client, cmd scp.Com
 	if err != nil {
 		return err
 	}
+	//nolint:errcheck
 	go io.Copy(os.Stderr, stderr)
 
 	ch := utils.NewPipeNetConn(
