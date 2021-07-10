@@ -11,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gravitational/teleport/lib/client"
-	"github.com/gravitational/teleport/lib/sshutils/scp"
-	"github.com/gravitational/teleport/lib/utils"
-	"github.com/gravitational/teleport/lib/utils/socks"
 	"github.com/gravitational/trace"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/turingvideo/gossh/teleport/lib/client"
+	"github.com/turingvideo/gossh/teleport/lib/sshutils/scp"
+	"github.com/turingvideo/gossh/teleport/lib/utils"
+	"github.com/turingvideo/gossh/teleport/lib/utils/socks"
 	"golang.org/x/crypto/ssh"
 )
 

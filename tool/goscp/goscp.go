@@ -10,10 +10,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/gravitational/teleport/lib/sshutils/scp"
-	"github.com/gravitational/teleport/lib/utils"
 	"github.com/rs/zerolog"
 	"github.com/turingvideo/gossh"
+	"github.com/turingvideo/gossh/teleport/lib/sshutils/scp"
+	"github.com/turingvideo/gossh/teleport/lib/utils"
 	"golang.org/x/term"
 	"gopkg.in/alecthomas/kingpin.v2"
 )

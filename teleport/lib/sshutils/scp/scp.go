@@ -30,8 +30,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/trace"
+	"github.com/turingvideo/gossh/teleport/lib/utils"
 
 	log "github.com/sirupsen/logrus"
 )

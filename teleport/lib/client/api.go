@@ -19,9 +19,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gravitational/teleport/lib/defaults"
-	"github.com/gravitational/teleport/lib/utils"
 	"github.com/gravitational/trace"
+	"github.com/turingvideo/gossh/teleport/lib/defaults"
+	"github.com/turingvideo/gossh/teleport/lib/utils"
 )
 
 // ForwardedPort specifies local tunnel to remote

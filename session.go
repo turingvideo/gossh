@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gravitational/teleport"
-	"github.com/gravitational/teleport/lib/defaults"
-	"github.com/gravitational/teleport/lib/sshutils"
-	"github.com/gravitational/teleport/lib/utils"
 	"github.com/moby/term"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/turingvideo/gossh/teleport"
+	"github.com/turingvideo/gossh/teleport/lib/defaults"
+	"github.com/turingvideo/gossh/teleport/lib/sshutils"
+	"github.com/turingvideo/gossh/teleport/lib/utils"
 	"golang.org/x/crypto/ssh"
 )
 
