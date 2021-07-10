@@ -9,4 +9,5 @@ require (
 	github.com/rs/zerolog v1.23.0
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	golang.org/x/term v0.0.0-20210615171337-6886f2dfbf5b
 )
