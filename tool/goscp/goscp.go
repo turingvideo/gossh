@@ -43,6 +43,8 @@ func main() {
 
 	if opt.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	} else {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

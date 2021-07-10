@@ -48,6 +48,8 @@ func main() {
 
 	if opt.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	} else {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -108,6 +110,7 @@ func run(ctx context.Context, opt option) error {
 		LocalForwardPorts:     localForwardPorts,
 		DynamicForwardedPorts: dynamicForwardedPorts,
 		Interactive:           opt.Interactive,
+		NoRemoteExec:          opt.NoRemoteExec,
 	}
 
 	return client.SSH(ctx, nil)

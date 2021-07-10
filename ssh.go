@@ -46,6 +46,10 @@ type Client struct {
 	// Interactive, when set to true, launch a remote command
 	// in interactive mode, i.e. attaching the temrinal to it
 	Interactive bool
+
+	// NoRemoteExec will not execute a remote command after connecting to a host,
+	// will block instead. Useful when port forwarding. Equivalent of -N for OpenSSH.
+	NoRemoteExec bool
 }
 
 type scpConfig struct {
@@ -63,6 +67,19 @@ func (c *Client) SSH(ctx context.Context, command []string) error {
 
 	// If forwarding ports were specified, start port forwarding.
 	c.startPortForwarding(ctx, client)
+
+	// If no remote command execution was requested, block on the context which
+	// will unblock upon error or SIGINT.
+	if c.NoRemoteExec {
+		c.getLogger().Debug().Msgf("Connected to node, no remote command execution was requested, blocking until context closes.")
+		<-ctx.Done()
+
+		// Only return an error if the context was canceled by something other than SIGINT.
+		if ctx.Err() != context.Canceled {
+			return ctx.Err()
+		}
+		return nil
+	}
 
 	// Issue "exec" request(s) to run on remote session.
 	if len(command) > 0 {
