@@ -50,6 +50,10 @@ type Client struct {
 	// NoRemoteExec will not execute a remote command after connecting to a host,
 	// will block instead. Useful when port forwarding. Equivalent of -N for OpenSSH.
 	NoRemoteExec bool
+
+	// OnShellCreated gets called when the shell is created. It's
+	// safe to keep it nil.
+	OnShellCreated ShellCreatedCallback
 }
 
 type scpConfig struct {
@@ -270,7 +274,7 @@ func (c *Client) runShell(client *ssh.Client) error {
 	if err != nil {
 		return err
 	}
-	if err = session.RunShell(nil); err != nil {
+	if err = session.RunShell(c.OnShellCreated); err != nil {
 		return err
 	}
 	stderr := c.Stderr
@@ -292,7 +296,7 @@ func (c *Client) runCommand(ctx context.Context, client *ssh.Client, command []s
 		return err
 	}
 	defer session.Close()
-	if err := session.RunCommand(ctx, command, nil, c.Interactive); err != nil {
+	if err := session.RunCommand(ctx, command, c.OnShellCreated, c.Interactive); err != nil {
 		originErr := trace.Unwrap(err)
 		exitErr, ok := originErr.(*ssh.ExitError)
 		if ok {
