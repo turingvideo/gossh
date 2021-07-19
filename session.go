@@ -248,7 +248,7 @@ func (s *Session) allocateTerminal(termType string, sshSession *ssh.Session) (io
 	), nil
 }
 
-func (s *Session) RequestWindowChange(sshSession *ssh.Session, width, height uint32) error {
+func RequestWindowChange(sshSession *ssh.Session, width, height uint32) error {
 	// Send the "window-change" request over the channel.
 	_, err := sshSession.SendRequest(
 		sshutils.WindowChangeRequest,
@@ -257,9 +257,6 @@ func (s *Session) RequestWindowChange(sshSession *ssh.Session, width, height uin
 			W: width,
 			H: height,
 		}))
-	if err != nil {
-		s.logger.Warn().Msgf("Unable to send %v reqest: %v.", sshutils.WindowChangeRequest, err)
-	}
 	return err
 }
 
@@ -301,8 +298,9 @@ func (s *Session) updateTerminalSize(sshSession *ssh.Session) {
 			}
 
 			// Send the "window-change" request over the channel.
-			err = s.RequestWindowChange(sshSession, uint32(currSize.Width), uint32(currSize.Height))
+			err = RequestWindowChange(sshSession, uint32(currSize.Width), uint32(currSize.Height))
 			if err != nil {
+				s.logger.Warn().Msgf("Unable to send %v reqest: %v.", sshutils.WindowChangeRequest, err)
 				continue
 			}
 
