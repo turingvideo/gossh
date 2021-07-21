@@ -54,6 +54,8 @@ type Client struct {
 	// OnShellCreated gets called when the shell is created. It's
 	// safe to keep it nil.
 	OnShellCreated ShellCreatedCallback
+
+	HostKeyCallback ssh.HostKeyCallback
 }
 
 type scpConfig struct {
@@ -162,10 +164,15 @@ func (c *Client) connect() (*ssh.Client, error) {
 		auth = append(auth, ssh.PasswordCallback(c.PasswordCallback))
 	}
 
+	hostKeyCallback := c.HostKeyCallback
+	if hostKeyCallback == nil {
+		hostKeyCallback = HostKeyCallback
+	}
+
 	sshConfig := &ssh.ClientConfig{
 		User:            c.Username,
 		Auth:            auth,
-		HostKeyCallback: HostKeyCallback,
+		HostKeyCallback: hostKeyCallback,
 	}
 
 	client, err := ssh.Dial("tcp", c.Addr, sshConfig)
